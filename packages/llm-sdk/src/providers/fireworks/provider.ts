@@ -148,6 +148,10 @@ export function fireworks(
         temperature: params.temperature,
         max_tokens: params.maxTokens,
         stream: true,
+        // OpenAI-compatible APIs only return usage data in streams when this is set.
+        // Without it, every stream finishes with promptTokens=0/completionTokens=0
+        // and downstream credit deduction silently zeroes out.
+        stream_options: { include_usage: true },
       };
 
       if (params.tools) {
@@ -169,11 +173,22 @@ export function fireworks(
 
       let totalPromptTokens = 0;
       let totalCompletionTokens = 0;
+      let finishReason: FinishReason | null = null;
+      let toolCallsEmitted = false;
 
       for await (const chunk of stream) {
         if (params.signal?.aborted) {
           yield { type: "error", error: new Error("Aborted") };
           return;
+        }
+
+        // Capture usage from any chunk that has it — when stream_options.include_usage
+        // is enabled, usage arrives in a separate trailing chunk with `choices: []`
+        // (AFTER the finish_reason chunk), not in the finish_reason chunk itself.
+        if (chunk.usage) {
+          totalPromptTokens = chunk.usage.prompt_tokens ?? totalPromptTokens;
+          totalCompletionTokens =
+            chunk.usage.completion_tokens ?? totalCompletionTokens;
         }
 
         const choice = chunk.choices[0];
@@ -204,33 +219,39 @@ export function fireworks(
         }
 
         if (choice?.finish_reason) {
-          for (const [, tc] of toolCallMap) {
-            yield {
-              type: "tool-call",
-              toolCall: {
-                id: tc.id,
-                name: tc.name,
-                args: JSON.parse(tc.arguments || "{}"),
-              },
-            };
-          }
-          toolCallMap.clear();
+          finishReason = mapFinishReason(choice.finish_reason);
 
-          if (chunk.usage) {
-            totalPromptTokens = chunk.usage.prompt_tokens;
-            totalCompletionTokens = chunk.usage.completion_tokens;
+          // Emit tool calls as soon as the model is done generating them,
+          // but defer the `finish` event until we've seen the usage chunk.
+          if (!toolCallsEmitted) {
+            for (const [, tc] of toolCallMap) {
+              yield {
+                type: "tool-call",
+                toolCall: {
+                  id: tc.id,
+                  name: tc.name,
+                  args: JSON.parse(tc.arguments || "{}"),
+                },
+              };
+            }
+            toolCallMap.clear();
+            toolCallsEmitted = true;
           }
-
-          yield {
-            type: "finish",
-            finishReason: mapFinishReason(choice.finish_reason),
-            usage: {
-              promptTokens: totalPromptTokens,
-              completionTokens: totalCompletionTokens,
-              totalTokens: totalPromptTokens + totalCompletionTokens,
-            },
-          };
         }
+      }
+
+      // Emit the final `finish` event once the stream is fully drained — by now
+      // we've captured usage from the trailing chunk (if include_usage was honored).
+      if (finishReason) {
+        yield {
+          type: "finish",
+          finishReason,
+          usage: {
+            promptTokens: totalPromptTokens,
+            completionTokens: totalCompletionTokens,
+            totalTokens: totalPromptTokens + totalCompletionTokens,
+          },
+        };
       }
     },
   };

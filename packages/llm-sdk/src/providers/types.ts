@@ -408,6 +408,13 @@ export interface XAIProviderConfig extends BaseProviderConfig {
 }
 
 /**
+ * Fireworks AI provider configuration
+ */
+export interface FireworksProviderConfig extends BaseProviderConfig {
+  // Fireworks uses OpenAI-compatible API, no extra config needed
+}
+
+/**
  * Azure OpenAI provider configuration
  */
 export interface AzureProviderConfig extends BaseProviderConfig {
