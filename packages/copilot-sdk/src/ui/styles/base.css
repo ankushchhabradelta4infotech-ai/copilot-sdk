@@ -316,9 +316,41 @@
 .csdk-message-content [data-streamdown="code-block-body"] {
   background: var(--csdk-code-body-bg, hsl(var(--card)));
   border-color: var(--csdk-code-border, hsl(var(--border)));
+  /* The body gets a card background above, so its text must be card text too. Without this
+     it inherits the bubble colour — white on white inside the user bubble, which rendered
+     code blocks there as an empty box (the header was readable only because it sets its own
+     colour below). Highlighting is async, so this is also what shows before tokens arrive. */
+  color: var(--csdk-code-body-fg, hsl(var(--card-foreground)));
+}
+
+/* Inside the user bubble, derive the code colours from the bubble's own pair rather than
+   the card tokens: body = bubble text colour, text = bubble colour. Those two always contrast
+   with each other, in every theme — whereas card-foreground is light in dark mode and would
+   land on a light body here. Consumers can still override via the --csdk-code-* variables. */
+.csdk-message-user {
+  --csdk-code-body-bg: hsl(var(--primary-foreground) / 0.92);
+  --csdk-code-body-fg: hsl(var(--primary));
+  --csdk-code-bg: hsl(var(--primary-foreground) / 0.16);
+  --csdk-code-border: hsl(var(--primary-foreground) / 0.25);
 }
 
 .csdk-message-content [data-streamdown="code-block-header"] {
   color: hsl(var(--muted-foreground));
+}
+
+/* Dark-mode token colours. Streamdown highlights with a light/dark theme pair: each token
+   span carries the LIGHT colour inline and the dark one in `--shiki-dark` (bg likewise in
+   `--shiki-dark-bg`), then relies on the Tailwind utilities `dark:text-(--shiki-dark)!` /
+   `dark:bg-(--shiki-dark-bg)!` to switch. Those classes are in streamdown's bundle, which a
+   consumer's `@source` does not scan (and under pnpm the package is not even at a stable path
+   to point at), so they are never generated — leaving light-theme token colours on the dark
+   body we force above. Equivalent plain CSS here, keyed on the same `.dark` the rest of this
+   file uses, so it works with no Tailwind cooperation. Scoped to spans that actually carry the
+   variable so line-wrapper spans and unhighlighted (plain) code keep the body colour. */
+.dark .csdk-message-content [data-streamdown="code-block-body"] span[style*="--shiki-dark"] {
+  color: var(--shiki-dark) !important;
+}
+.dark .csdk-message-content [data-streamdown="code-block-body"] span[style*="--shiki-dark-bg"] {
+  background-color: var(--shiki-dark-bg) !important;
 }
 
